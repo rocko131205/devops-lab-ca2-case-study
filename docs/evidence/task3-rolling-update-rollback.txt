@@ -1,0 +1,108 @@
+
+========== 1. Deploy v1 ==========
+$ kubectl apply -f deployment.yaml -f service.yaml -f loadgen.yaml
+deployment.apps/catalog-service created
+service/catalog-service unchanged
+deployment.apps/loadgen unchanged
+$ kubectl rollout status deployment/catalog-service --timeout=120s
+Waiting for deployment "catalog-service" rollout to finish: 0 of 3 updated replicas are available...
+Waiting for deployment "catalog-service" rollout to finish: 1 of 3 updated replicas are available...
+deployment "catalog-service" successfully rolled out
+$ kubectl get pods -l app=catalog-service -o wide
+NAME                               READY   STATUS    RESTARTS   AGE   IP            NODE                       NOMINATED NODE   READINESS GATES
+catalog-service-64bf7fc777-5kxf5   1/1     Running   0          6s    10.244.0.29   devops-lab-control-plane   <none>           <none>
+catalog-service-64bf7fc777-hxnkd   1/1     Running   0          6s    10.244.0.28   devops-lab-control-plane   <none>           <none>
+catalog-service-64bf7fc777-t9gsj   1/1     Running   0          6s    10.244.0.30   devops-lab-control-plane   <none>           <none>
+$ kubectl exec deploy/loadgen -- wget -qO- http://catalog-service/
+{"service":"catalog-service","version":"v1"}
+
+
+========== 2. Rolling update v1 -> v2 ==========
+$ kubectl set image deployment/catalog-service catalog-service=catalog-service:v2
+deployment.apps/catalog-service image updated
+$ kubectl annotate deployment/catalog-service kubernetes.io/change-cause=v2: new release --overwrite
+deployment.apps/catalog-service annotated
+$ kubectl rollout status deployment/catalog-service --timeout=120s
+Waiting for deployment "catalog-service" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "catalog-service" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "catalog-service" rollout to finish: 1 old replicas are pending termination...
+deployment "catalog-service" successfully rolled out
+$ kubectl get rs -l app=catalog-service
+NAME                         DESIRED   CURRENT   READY   AGE
+catalog-service-64bf7fc777   0         0         0       25s
+catalog-service-84f5678b8    3         3         3       18s
+$ kubectl get pods -l app=catalog-service
+NAME                               READY   STATUS        RESTARTS   AGE
+catalog-service-64bf7fc777-hxnkd   1/1     Terminating   0          25s
+catalog-service-84f5678b8-42mv5    1/1     Running       0          12s
+catalog-service-84f5678b8-ts2pw    1/1     Running       0          18s
+catalog-service-84f5678b8-z52ph    1/1     Running       0          6s
+$ kubectl exec deploy/loadgen -- wget -qO- http://catalog-service/
+{"service":"catalog-service","version":"v2"}
+
+
+Requests sent during the rolling update: 160 | answered by v1: 51 | by v2: 109 | failed: 0
+
+========== 3. Rollback v2 -> v1 ==========
+$ kubectl rollout history deployment/catalog-service
+deployment.apps/catalog-service 
+REVISION  CHANGE-CAUSE
+1         v1: initial release
+2         v2: new release
+
+$ kubectl rollout undo deployment/catalog-service
+deployment.apps/catalog-service rolled back
+$ kubectl rollout status deployment/catalog-service --timeout=120s
+Waiting for deployment "catalog-service" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "catalog-service" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "catalog-service" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "catalog-service" rollout to finish: 1 old replicas are pending termination...
+deployment "catalog-service" successfully rolled out
+$ kubectl rollout history deployment/catalog-service
+deployment.apps/catalog-service 
+REVISION  CHANGE-CAUSE
+2         v2: new release
+3         v1: initial release
+
+$ kubectl get pods -l app=catalog-service
+NAME                               READY   STATUS        RESTARTS   AGE
+catalog-service-64bf7fc777-99qhr   1/1     Running       0          19s
+catalog-service-64bf7fc777-jbpxn   1/1     Running       0          6s
+catalog-service-64bf7fc777-nfh7h   1/1     Running       0          12s
+catalog-service-84f5678b8-ts2pw    1/1     Terminating   0          63s
+$ kubectl exec deploy/loadgen -- wget -qO- http://catalog-service/
+{"service":"catalog-service","version":"v1"}
+
+
+========== 4. Self-healing: kill a pod (mini Chaos Monkey) ==========
+$ kubectl delete pod catalog-service-64bf7fc777-99qhr --wait=false
+pod "catalog-service-64bf7fc777-99qhr" deleted from default namespace
+$ kubectl get pods -l app=catalog-service
+NAME                               READY   STATUS        RESTARTS   AGE
+catalog-service-64bf7fc777-99qhr   1/1     Terminating   0          27s
+catalog-service-64bf7fc777-jbpxn   1/1     Running       0          14s
+catalog-service-64bf7fc777-nfh7h   1/1     Running       0          20s
+catalog-service-64bf7fc777-tnn47   0/1     Running       0          3s
+$ kubectl wait --for=condition=Available deployment/catalog-service --timeout=60s
+deployment.apps/catalog-service condition met
+$ kubectl get pods -l app=catalog-service
+NAME                               READY   STATUS    RESTARTS   AGE
+catalog-service-64bf7fc777-jbpxn   1/1     Running   0          18s
+catalog-service-64bf7fc777-nfh7h   1/1     Running   0          24s
+catalog-service-64bf7fc777-tnn47   1/1     Running   0          7s
+$ kubectl get deployment catalog-service
+NAME              READY   UP-TO-DATE   AVAILABLE   AGE
+catalog-service   3/3     3            3           82s

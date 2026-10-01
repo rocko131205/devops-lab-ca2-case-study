@@ -1,0 +1,33 @@
+# Small traffic generator (about 6 requests/sec) so the dashboard has data.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  labels:
+    app: loadgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgen
+  template:
+    metadata:
+      labels:
+        app: loadgen
+    spec:
+      containers:
+        - name: loadgen
+          image: busybox:1.37
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                wget -q -O /dev/null http://catalog-service/titles
+                wget -q -O /dev/null http://catalog-service/titles/3
+                wget -q -O /dev/null http://catalog-service/recommendations
+                sleep 0.5
+              done
+          resources:
+            limits:
+              cpu: 50m
+              memory: 16Mi
