@@ -1,0 +1,17 @@
+$ docker exec ubuntu-server id appuser
+uid=1001(appuser) gid=1001(appgroup) groups=1001(appgroup)
+$ docker exec ubuntu-server ls -l /opt/catalog-service /etc/catalog-service
+/etc/catalog-service:
+total 4
+-rw-r----- 1 appuser appgroup 86 Oct  1 15:29 catalog.env
+
+/opt/catalog-service:
+total 20
+drwxr-xr-x 3 appuser appgroup 4096 Oct  1 15:29 app
+-rw-r--r-- 1 appuser appgroup    5 Oct  1 15:29 gunicorn.pid
+-rw-r--r-- 1 appuser appgroup   56 Oct  1 15:29 requirements.txt
+-rwxr-xr-x 1 appuser appgroup  436 Oct  1 15:29 start.sh
+drwxr-xr-x 5 appuser appgroup 4096 Oct  1 15:29 venv
+$ docker exec ubuntu-server curl -s localhost:5000/
+{"service":"catalog-service","version":"v1"}
+

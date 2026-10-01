@@ -1,0 +1,141 @@
+---
+# Task 2: configure a fresh Ubuntu server to run catalog-service.
+# Installs packages, creates a service user, manages files and config,
+# then starts the app and checks /health.
+- name: Configure runtime environment for catalog-service
+  hosts: appservers
+  gather_facts: false
+  vars:
+    app_user: appuser
+    app_group: appgroup
+    app_dir: /opt/catalog-service
+    config_dir: /etc/catalog-service
+    log_dir: /var/log/catalog-service
+    app_port: 5000
+    pid_file: /opt/catalog-service/gunicorn.pid
+    failure_rate: "0.05"
+
+  tasks:
+    - name: Bootstrap Python (a minimal Ubuntu image has none)
+      ansible.builtin.raw: test -e /usr/bin/python3 || (apt-get update -qq && apt-get install -y -qq python3)
+      register: bootstrap
+      changed_when: "'Setting up' in bootstrap.stdout"
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - python3-venv
+          - python3-pip
+          - curl
+          - ca-certificates
+          - procps
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create application group
+      ansible.builtin.group:
+        name: "{{ app_group }}"
+        state: present
+
+    - name: Create application user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        group: "{{ app_group }}"
+        shell: /bin/bash
+        create_home: true
+        comment: catalog-service runtime user
+
+    - name: Create app, config and log directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ app_dir }}", mode: "0755" }
+        - { path: "{{ config_dir }}", mode: "0750" }
+        - { path: "{{ log_dir }}", mode: "0750" }
+
+    - name: Copy application code
+      ansible.builtin.copy:
+        src: ../app/
+        dest: "{{ app_dir }}/app/"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0644"
+      notify: Restart catalog-service
+
+    - name: Copy requirements file
+      ansible.builtin.copy:
+        src: ../requirements.txt
+        dest: "{{ app_dir }}/requirements.txt"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0644"
+
+    - name: Write environment config from template
+      ansible.builtin.template:
+        src: templates/catalog.env.j2
+        dest: "{{ config_dir }}/catalog.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0640"
+      notify: Restart catalog-service
+
+    - name: Install Python dependencies into a virtualenv
+      ansible.builtin.pip:
+        requirements: "{{ app_dir }}/requirements.txt"
+        virtualenv: "{{ app_dir }}/venv"
+        virtualenv_command: python3 -m venv
+      become: true
+      become_user: "{{ app_user }}"
+      become_method: ansible.builtin.su
+
+    - name: Install start script
+      ansible.builtin.template:
+        src: templates/start.sh.j2
+        dest: "{{ app_dir }}/start.sh"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0755"
+      notify: Restart catalog-service
+
+    - name: Apply pending restarts (config or code changed)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Check if catalog-service is running
+      ansible.builtin.command: pgrep -F {{ pid_file }}
+      register: app_running
+      changed_when: false
+      failed_when: false
+
+    - name: Start catalog-service if it is not running
+      ansible.builtin.command: su -s /bin/bash -c "{{ app_dir }}/start.sh" {{ app_user }}
+      when: app_running.rc != 0
+      changed_when: true
+
+    - name: Verify the service answers on /health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ app_port }}/health"
+        return_content: true
+      register: health
+      retries: 10
+      delay: 2
+      until: health.status == 200
+
+    - name: Show health check result
+      ansible.builtin.debug:
+        msg: "catalog-service {{ app_version }} is healthy: {{ health.json }}"
+
+  handlers:
+    - name: Restart catalog-service
+      ansible.builtin.shell: |
+        pkill -F {{ pid_file }} 2>/dev/null || true
+        sleep 1
+        su -s /bin/bash -c "{{ app_dir }}/start.sh" {{ app_user }}
+      changed_when: true

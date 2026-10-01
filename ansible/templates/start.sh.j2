@@ -1,0 +1,11 @@
+#!/bin/bash
+# Managed by Ansible. Starts catalog-service in the background with gunicorn.
+set -a
+. {{ config_dir }}/catalog.env
+set +a
+cd {{ app_dir }}
+exec {{ app_dir }}/venv/bin/gunicorn --daemon --pid {{ pid_file }} \
+  --bind 0.0.0.0:${PORT} --workers 1 --threads 4 \
+  --access-logfile {{ log_dir }}/access.log \
+  --error-logfile {{ log_dir }}/error.log \
+  app.main:app

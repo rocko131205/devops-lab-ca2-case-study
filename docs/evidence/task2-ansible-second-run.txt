@@ -1,0 +1,58 @@
+$ ansible-playbook -i inventory.ini playbook.yml   # second run: nothing to change
+
+PLAY [Configure runtime environment for catalog-service] ***********************
+
+TASK [Bootstrap Python (a minimal Ubuntu image has none)] **********************
+ok: [ubuntu-server]
+
+TASK [Gather facts] ************************************************************
+ok: [ubuntu-server]
+
+TASK [Install required packages] ***********************************************
+ok: [ubuntu-server]
+
+TASK [Create application group] ************************************************
+ok: [ubuntu-server]
+
+TASK [Create application user] *************************************************
+ok: [ubuntu-server]
+
+TASK [Create app, config and log directories] **********************************
+ok: [ubuntu-server] => (item={'path': '/opt/catalog-service', 'mode': '0755'})
+ok: [ubuntu-server] => (item={'path': '/etc/catalog-service', 'mode': '0750'})
+ok: [ubuntu-server] => (item={'path': '/var/log/catalog-service', 'mode': '0750'})
+
+TASK [Copy application code] ***************************************************
+ok: [ubuntu-server]
+
+TASK [Copy requirements file] **************************************************
+ok: [ubuntu-server]
+
+TASK [Write environment config from template] **********************************
+ok: [ubuntu-server]
+
+TASK [Install Python dependencies into a virtualenv] ***************************
+ok: [ubuntu-server]
+
+TASK [Install start script] ****************************************************
+ok: [ubuntu-server]
+
+TASK [Apply pending restarts (config or code changed)] *************************
+
+TASK [Check if catalog-service is running] *************************************
+ok: [ubuntu-server]
+
+TASK [Start catalog-service if it is not running] ******************************
+skipping: [ubuntu-server]
+
+TASK [Verify the service answers on /health] ***********************************
+ok: [ubuntu-server]
+
+TASK [Show health check result] ************************************************
+ok: [ubuntu-server] => {
+    "msg": "catalog-service v1 is healthy: {'status': 'ok'}"
+}
+
+PLAY RECAP *********************************************************************
+ubuntu-server              : ok=14   changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
+
